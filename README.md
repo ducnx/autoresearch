@@ -4,88 +4,158 @@
 
 *One day, frontier AI research used to be done by meat computers in between eating, sleeping, having other fun, and synchronizing once in a while using sound wave interconnect in the ritual of "group meeting". That era is long gone. Research is now entirely the domain of autonomous swarms of AI agents running across compute cluster megastructures in the skies. The agents claim that we are now in the 10,205th generation of the code base, in any case no one could tell if that's right or wrong as the "code" is now a self-modifying binary that has grown beyond human comprehension. This repo is the story of how it all began. -@karpathy, March 2026*.
 
-The idea: give an AI agent a small but real LLM training setup and let it experiment autonomously overnight. It modifies the code, trains for 5 minutes, checks if the result improved, keeps or discards, and repeats. You wake up in the morning to a log of experiments and (hopefully) a better model. The training code here is a simplified single-GPU implementation of [nanochat](https://github.com/karpathy/nanochat). The core idea is that you're not touching any of the Python files like you normally would as a researcher. Instead, you are programming the `program.md` Markdown files that provide context to the AI agents and set up your autonomous research org. The default `program.md` in this repo is intentionally kept as a bare bones baseline, though it's obvious how one would iterate on it over time to find the "research org code" that achieves the fastest research progress, how you'd add more agents to the mix, etc. A bit more context on this project is here in this [tweet](https://x.com/karpathy/status/2029701092347630069) and [this tweet](https://x.com/karpathy/status/2031135152349524125).
+## What's New: Multi-Agent Framework
+
+This fork extends Karpathy's original autoresearch with a **multi-agent framework** inspired by [PaperOrchestra](https://arxiv.org/abs/2604.05018) (arXiv:2604.05018). Instead of a single AI agent running experiments in a loop, this version decomposes the research process into **6 specialized agents** that collaborate:
+
+| Agent | Role | LLM |
+|-------|------|-----|
+| 🎯 **Research Director** | Orchestrates strategy, selects hypotheses, makes keep/discard decisions | Cloud API |
+| 💡 **Hypothesis Agent** | Generates ranked experiment ideas with impact/risk assessment | Local (Ollama) |
+| 📚 **Literature Agent** | Searches for relevant techniques and recent advances | Cloud API |
+| 🔧 **Experiment Agent** | Implements code changes and runs training | Local (Ollama) |
+| 📊 **Analysis Agent** | Interprets results, identifies patterns across experiments | Local (Ollama) |
+| 📋 **Report Agent** | Generates progress reports with plots and summaries | Local (Ollama) |
+
+### Key Design Principles (from PaperOrchestra)
+
+- **Specialized agents** — each agent has a focused role with tailored prompts
+- **Parallel execution** — Hypothesis + Literature agents run simultaneously
+- **Iterative refinement** — Analysis feeds back into the next hypothesis cycle
+- **Shared workspace** — agents communicate via structured JSON files
+- **Hybrid LLM strategy** — cloud API for internet tasks, local Ollama for cost-sensitive tasks
 
 ## How it works
 
-The repo is deliberately kept small and only really has three files that matter:
+The repo has three layers:
 
-- **`prepare.py`** — fixed constants, one-time data prep (downloads training data, trains a BPE tokenizer), and runtime utilities (dataloader, evaluation). Not modified.
-- **`train.py`** — the single file the agent edits. Contains the full GPT model, optimizer (Muon + AdamW), and training loop. Everything is fair game: architecture, hyperparameters, optimizer, batch size, etc. **This file is edited and iterated on by the agent**.
-- **`program.md`** — baseline instructions for one agent. Point your agent here and let it go. **This file is edited and iterated on by the human**.
+1. **Experiment infrastructure** (`prepare.py`, `train.py`) — the original files for data prep and model training. Not modified by the framework.
+2. **Agent framework** (`agents/`, `core/`, `prompts/`) — the multi-agent system that drives autonomous research.
+3. **Entry points** (`run.py`, `dashboard.py`) — CLI launcher and web dashboard.
 
-By design, training runs for a **fixed 5-minute time budget** (wall clock, excluding startup/compilation), regardless of the details of your compute. The metric is **val_bpb** (validation bits per byte) — lower is better, and vocab-size-independent so architectural changes are fairly compared.
+### The Research Loop
 
-If you are new to neural networks, this ["Dummy's Guide"](https://x.com/hooeem/status/2030720614752039185) looks pretty good for a lot more context.
+```
+┌─ Phase 1: Research Brief ──────────── Director generates strategy
+│
+├─ Phase 2: Parallel Research ─────────┐
+│   ├─ Hypothesis Agent ──────────────── Generates 3-5 ranked ideas
+│   └─ Literature Agent ──────────────── Searches for relevant techniques
+│                                       └──────────────────────────────┘
+├─ Phase 3: Selection ──────────────── Director picks best hypothesis
+│
+├─ Phase 4: Experiment ─────────────── Experiment Agent implements & runs
+│
+├─ Phase 5: Analysis + Decision ────── Analysis Agent interprets results
+│                                      Director decides keep/discard
+│
+├─ Phase 6: Report (every 5 exps) ──── Report Agent generates progress report
+│
+└─ Loop ─────────────────────────────── Back to Phase 1
+```
 
 ## Quick start
 
-**Requirements:** A single NVIDIA GPU (tested on H100), Python 3.10+, [uv](https://docs.astral.sh/uv/).
+**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/), an LLM (cloud API key and/or [Ollama](https://ollama.ai)).
 
 ```bash
-
-# 1. Install uv project manager (if you don't already have it)
+# 1. Install uv (if needed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Install dependencies
 uv sync
 
 # 3. Download data and train tokenizer (one-time, ~2 min)
+# Only needed if you have a GPU and want to run real experiments
 uv run prepare.py
 
-# 4. Manually run a single training experiment (~5 min)
-uv run train.py
+# 4. Set up your LLM
+# Option A: Cloud API (set your API key)
+export GEMINI_API_KEY="your-key-here"
+
+# Option B: Local Ollama (install and pull a model)
+# ollama pull qwen3:8b
+
+# 5. Run the multi-agent framework
+uv run run.py --tag my_first_run
+
+# Or run in dry-run mode (no GPU needed):
+uv run run.py --dry-run --max-experiments 5
 ```
 
-If the above commands all work ok, your setup is working and you can go into autonomous research mode.
+## Running the dashboard
 
-## Running the agent
+In a separate terminal:
 
-Simply spin up your Claude/Codex or whatever you want in this repo (and disable all permissions), then you can prompt something like:
-
+```bash
+uv run dashboard.py
+# Open http://localhost:8501
 ```
-Hi have a look at program.md and let's kick off a new experiment! let's do the setup first.
+
+## CLI options
+
+```bash
+uv run run.py                                    # auto-detect GPU, use defaults
+uv run run.py --tag apr11                         # set experiment tag
+uv run run.py --dry-run                           # simulate without GPU
+uv run run.py --max-experiments 20                # stop after 20 experiments
+uv run run.py --cloud-model gpt-4o                # use OpenAI for cloud agents
+uv run run.py --local-model llama3.2:3b           # use smaller Ollama model
+uv run run.py --report-interval 3                 # report every 3 experiments
 ```
 
-The `program.md` file is essentially a super lightweight "skill".
+## Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GEMINI_API_KEY` | API key for Gemini (cloud agents) | — |
+| `OPENAI_API_KEY` | API key for OpenAI (if using gpt-4o) | — |
+| `AUTORESEARCH_CLOUD_MODEL` | Override cloud LLM model | `gemini/gemini-2.5-flash` |
+| `AUTORESEARCH_LOCAL_MODEL` | Override local Ollama model | `qwen3:8b` |
+| `AUTORESEARCH_API_KEY` | Override API key for cloud agents | — |
 
 ## Project structure
 
 ```
-prepare.py      — constants, data prep + runtime utilities (do not modify)
-train.py        — model, optimizer, training loop (agent modifies this)
-program.md      — agent instructions
-pyproject.toml  — dependencies
+autoresearch/
+├── agents/                     # Multi-agent framework
+│   ├── base.py                 # Base agent class with LLM interface
+│   ├── director.py             # Research Director (orchestrator)
+│   ├── hypothesis.py           # Hypothesis generation
+│   ├── literature.py           # Literature search
+│   ├── experiment.py           # Code modification & training
+│   ├── analysis.py             # Result interpretation
+│   └── report.py               # Progress reports & plots
+├── core/                       # Infrastructure
+│   ├── config.py               # Configuration & LLM settings
+│   ├── workspace.py            # Shared state management
+│   └── runner.py               # Experiment runner (subprocess)
+├── prompts/                    # Agent system prompts (Markdown)
+│   ├── director.md
+│   ├── hypothesis.md
+│   ├── literature.md
+│   ├── experiment.md
+│   ├── analysis.md
+│   └── report.md
+├── prepare.py                  # Data prep & tokenizer (unchanged)
+├── train.py                    # Model & training loop (agent modifies)
+├── run.py                      # Main entry point
+├── dashboard.py                # Web monitoring dashboard
+├── program.md                  # Agent instructions (legacy)
+└── pyproject.toml              # Dependencies
 ```
 
 ## Design choices
 
-- **Single file to modify.** The agent only touches `train.py`. This keeps the scope manageable and diffs reviewable.
-- **Fixed time budget.** Training always runs for exactly 5 minutes, regardless of your specific platform. This means you can expect approx 12 experiments/hour and approx 100 experiments while you sleep. There are two upsides of this design decision. First, this makes experiments directly comparable regardless of what the agent changes (model size, batch size, architecture, etc). Second, this means that autoresearch will find the most optimal model for your platform in that time budget. The downside is that your runs (and results) become not comparable to other people running on other compute platforms.
-- **Self-contained.** No external dependencies beyond PyTorch and a few small packages. No distributed training, no complex configs. One GPU, one file, one metric.
+- **Hybrid LLM strategy.** Cloud API (Gemini/GPT-4o) for tasks requiring internet access or strong reasoning (Director, Literature), local Ollama for cost-sensitive frequent tasks (Hypothesis, Experiment, Analysis, Report). Automatic fallback to cloud if Ollama is not available.
+- **Flexible GPU support.** Auto-detects NVIDIA GPU. Falls back to `--dry-run` mode with simulated results for framework testing without GPU.
+- **Shared workspace.** Agents communicate via JSON files in `workspace/`, not direct messages. This enables debugging, replay, and persistence across restarts.
+- **Preserved experiment infrastructure.** The original `prepare.py` and `train.py` are untouched — still one GPU, one file, one metric.
 
-## Platform support
+## Attribution
 
-This code currently requires that you have a single NVIDIA GPU. In principle it is quite possible to support CPU, MPS and other platforms but this would also bloat the code. I'm not 100% sure that I want to take this on personally right now. People can reference (or have their agents reference) the full/parent nanochat repository that has wider platform support and shows the various solutions (e.g. a Flash Attention 3 kernels fallback implementation, generic device support, autodetection, etc.), feel free to create forks or discussions for other platforms and I'm happy to link to them here in the README in some new notable forks section or etc.
-
-Seeing as there seems to be a lot of interest in tinkering with autoresearch on much smaller compute platforms than an H100, a few extra words. If you're going to try running autoresearch on smaller computers (Macbooks etc.), I'd recommend one of the forks below. On top of this, here are some recommendations for how to tune the defaults for much smaller models for aspiring forks:
-
-1. To get half-decent results I'd use a dataset with a lot less entropy, e.g. this [TinyStories dataset](https://huggingface.co/datasets/karpathy/tinystories-gpt4-clean). These are GPT-4 generated short stories. Because the data is a lot narrower in scope, you will see reasonable results with a lot smaller models (if you try to sample from them after training).
-2. You might experiment with decreasing `vocab_size`, e.g. from 8192 down to 4096, 2048, 1024, or even - simply byte-level tokenizer with 256 possibly bytes after utf-8 encoding.
-3. In `prepare.py`, you'll want to lower `MAX_SEQ_LEN` a lot, depending on the computer even down to 256 etc. As you lower `MAX_SEQ_LEN`, you may want to experiment with increasing `DEVICE_BATCH_SIZE` in `train.py` slightly to compensate. The number of tokens per fwd/bwd pass is the product of these two.
-4. Also in `prepare.py`, you'll want to decrease `EVAL_TOKENS` so that your validation loss is evaluated on a lot less data.
-5. In `train.py`, the primary single knob that controls model complexity is the `DEPTH` (default 8, here). A lot of variables are just functions of this, so e.g. lower it down to e.g. 4.
-6. You'll want to most likely use `WINDOW_PATTERN` of just "L", because "SSSL" uses alternating banded attention pattern that may be very inefficient for you. Try it.
-7. You'll want to lower `TOTAL_BATCH_SIZE` a lot, but keep it powers of 2, e.g. down to `2**14` (~16K) or so even, hard to tell.
-
-I think these would be the reasonable hyperparameters to play with. Ask your favorite coding agent for help and copy paste them this guide, as well as the full source code.
-
-## Notable forks
-
-- [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) (MacOS)
-- [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) (MacOS)
-- [jsegov/autoresearch-win-rtx](https://github.com/jsegov/autoresearch-win-rtx) (Windows)
-- [andyluo7/autoresearch](https://github.com/andyluo7/autoresearch) (AMD)
+- Original autoresearch by [Andrej Karpathy](https://github.com/karpathy/autoresearch)
+- Multi-agent architecture inspired by [PaperOrchestra](https://arxiv.org/abs/2604.05018) (Song et al., 2026)
 
 ## License
 

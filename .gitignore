@@ -21,3 +21,8 @@ dev/
 
 # Results file
 results.tsv
+
+# Multi-agent workspace
+workspace/
+.env
+run.log
