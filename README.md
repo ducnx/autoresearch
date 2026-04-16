@@ -67,7 +67,9 @@ uv sync
 
 # 3. Download data and train tokenizer (one-time, ~2 min)
 # Only needed if you have a GPU and want to run real experiments
+cd projects/default
 uv run prepare.py
+cd ../..
 
 # 4. Set up your LLM
 # Option A: Cloud API (set your API key)
@@ -96,6 +98,7 @@ uv run dashboard.py
 
 ```bash
 uv run run.py                                    # auto-detect GPU, use defaults
+uv run run.py --project my_project                # run for a specific project folder
 uv run run.py --tag apr11                         # set experiment tag
 uv run run.py --dry-run                           # simulate without GPU
 uv run run.py --max-experiments 20                # stop after 20 experiments
@@ -130,6 +133,10 @@ autoresearch/
 │   ├── config.py               # Configuration & LLM settings
 │   ├── workspace.py            # Shared state management
 │   └── runner.py               # Experiment runner (subprocess)
+├── projects/                   # Research projects directories
+│   └── default/                # Default project
+│       ├── prepare.py          # Data prep & tokenizer (unchanged)
+│       └── train.py            # Model & training loop (agent modifies)
 ├── prompts/                    # Agent system prompts (Markdown)
 │   ├── director.md
 │   ├── hypothesis.md
@@ -137,8 +144,6 @@ autoresearch/
 │   ├── experiment.md
 │   ├── analysis.md
 │   └── report.md
-├── prepare.py                  # Data prep & tokenizer (unchanged)
-├── train.py                    # Model & training loop (agent modifies)
 ├── run.py                      # Main entry point
 ├── dashboard.py                # Web monitoring dashboard
 ├── program.md                  # Agent instructions (legacy)

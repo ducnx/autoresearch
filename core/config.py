@@ -90,6 +90,8 @@ class Config:
 
     # --- Paths ---
     project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent)
+    project: str = "default"
+    project_dir: Path = field(default=None)
     workspace_dir: Path = field(default=None)
     train_script: str = "train.py"
     prepare_script: str = "prepare.py"
@@ -114,8 +116,11 @@ class Config:
     dashboard_port: int = 8501
 
     def __post_init__(self):
+        if self.project_dir is None:
+            self.project_dir = self.project_root / "projects" / self.project
+            
         if self.workspace_dir is None:
-            self.workspace_dir = self.project_root / "workspace"
+            self.workspace_dir = self.project_dir / "workspace"
 
         # If no GPU and not explicitly set to dry_run, auto-enable dry_run
         if not self.has_gpu and not self.dry_run:

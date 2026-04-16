@@ -14,14 +14,18 @@ import argparse
 import json
 import http.server
 import os
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
 
-WORKSPACE_DIR = Path(__file__).parent / "workspace"
+PROJECTS_DIR = Path(__file__).parent / "projects"
+WORKSPACE_DIR = PROJECTS_DIR
 
 
-def get_state():
+
+def get_state(project="default"):
+    WORKSPACE_DIR = PROJECTS_DIR / project / "workspace"
     """Read workspace state."""
     state_path = WORKSPACE_DIR / "state.json"
     if state_path.exists():
@@ -29,7 +33,8 @@ def get_state():
     return {}
 
 
-def get_results():
+def get_results(project="default"):
+    WORKSPACE_DIR = PROJECTS_DIR / project / "workspace"
     """Read experiment results."""
     results_path = WORKSPACE_DIR / "results.json"
     if results_path.exists():
@@ -37,7 +42,8 @@ def get_results():
     return []
 
 
-def get_agent_logs():
+def get_agent_logs(project="default"):
+    WORKSPACE_DIR = PROJECTS_DIR / project / "workspace"
     """Read recent agent logs."""
     logs_dir = WORKSPACE_DIR / "logs"
     all_logs = []
@@ -53,11 +59,24 @@ def get_agent_logs():
     return all_logs[:50]
 
 
-def build_html():
+def build_html(project="default"):
     """Build the dashboard HTML."""
-    state = get_state()
-    results = get_results()
-    logs = get_agent_logs()
+    state = get_state(project)
+    results = get_results(project)
+    logs = get_agent_logs(project)
+
+
+    # Get available projects
+    available_projects = []
+    if  PROJECTS_DIR.exists():
+        available_projects = sorted([d.name for d in PROJECTS_DIR.iterdir() if d.is_dir()])
+    else:
+        available_projects = ["default"]
+        
+    project_options = ""
+    for p in available_projects:
+        selected = "selected" if p == project else ""
+        project_options += f'<option value="{p}" {selected}>{p}</option>'
 
     baseline_bpb = state.get("baseline_bpb", "—")
     best_bpb = state.get("best_bpb", "—")
@@ -127,7 +146,7 @@ def build_html():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="15">
+    <meta http-equiv="refresh" content="15;url=/?project={project}">
     <title>Autoresearch Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <style>
@@ -238,7 +257,14 @@ def build_html():
     </style>
 </head>
 <body>
-    <h1>🔬 Autoresearch Dashboard</h1>
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+        <h1>🔬 Autoresearch Dashboard</h1>
+        <select onchange="window.location.href='/?project=' + this.value" style="padding: 0.5rem; border-radius: 8px; background: var(--card); color: var(--text); border: 1px solid var(--border);">
+            {project_options}
+        </select>
+    </div>
+
     <p class="subtitle">Multi-Agent Autonomous Research · Run: <strong>{run_tag}</strong> · Auto-refreshes every 15s</p>
 
     <div class="grid">
@@ -322,26 +348,32 @@ def build_html():
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     """HTTP handler for the dashboard."""
 
+
     def do_GET(self):
-        if self.path == "/" or self.path == "/index.html":
-            html = build_html()
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        project = qs.get("project", ["default"])[0]
+        
+        if parsed.path == "/" or parsed.path == "/index.html":
+            html = build_html(project)
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            self.wfile.write(html.encode())
-        elif self.path == "/api/state":
+            self.wfile.write(html.encode("utf-8"))
+        elif parsed.path == "/api/state":
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(get_state()).encode())
-        elif self.path == "/api/results":
+            self.wfile.write(json.dumps(get_state(project)).encode("utf-8"))
+        elif parsed.path == "/api/results":
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(get_results()).encode())
+            self.wfile.write(json.dumps(get_results(project)).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()
+
 
     def log_message(self, format, *args):
         pass  # Suppress request logs

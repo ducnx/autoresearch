@@ -22,45 +22,45 @@ class ExperimentAgent(BaseAgent):
 
     def _read_train_py(self) -> str:
         """Read the current train.py content."""
-        train_path = self.config.project_root / self.config.train_script
+        train_path = self.config.project_dir / self.config.train_script
         return train_path.read_text()
 
     def _write_train_py(self, content: str):
         """Write modified train.py content."""
-        train_path = self.config.project_root / self.config.train_script
+        train_path = self.config.project_dir / self.config.train_script
         train_path.write_text(content)
 
     def _git_commit(self, message: str) -> str:
         """Commit current changes and return the short hash."""
-        root = str(self.config.project_root)
+        cwd = str(self.config.project_dir)
         subprocess.run(
             ["git", "add", self.config.train_script],
-            cwd=root, capture_output=True, check=True,
+            cwd=cwd, capture_output=True, check=True,
         )
         subprocess.run(
             ["git", "commit", "-m", message, "--allow-empty"],
-            cwd=root, capture_output=True, check=True,
+            cwd=cwd, capture_output=True, check=True,
         )
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=root, capture_output=True, text=True, check=True,
+            cwd=cwd, capture_output=True, text=True, check=True,
         )
         return result.stdout.strip()
 
     def _git_revert(self):
         """Revert the last commit (soft reset)."""
-        root = str(self.config.project_root)
+        cwd = str(self.config.project_dir)
         subprocess.run(
             ["git", "reset", "--hard", "HEAD~1"],
-            cwd=root, capture_output=True, check=True,
+            cwd=cwd, capture_output=True, check=True,
         )
 
     def _git_diff(self) -> str:
         """Get the current diff."""
-        root = str(self.config.project_root)
+        cwd = str(self.config.project_dir)
         result = subprocess.run(
             ["git", "diff", self.config.train_script],
-            cwd=root, capture_output=True, text=True,
+            cwd=cwd, capture_output=True, text=True,
         )
         return result.stdout
 
@@ -148,16 +148,16 @@ class ExperimentAgent(BaseAgent):
             code_diff = None
             if experiment_id > 0:
                 # The diff is between HEAD~1 and HEAD
-                root = str(self.config.project_root)
+                cwd = str(self.config.project_dir)
                 diff_result = subprocess.run(
                     ["git", "diff", "HEAD~1", "HEAD", "--", self.config.train_script],
-                    cwd=root, capture_output=True, text=True,
+                    cwd=cwd, capture_output=True, text=True,
                 )
                 code_diff = diff_result.stdout
 
             # Run the experiment
             run_result = run_experiment(
-                project_root=self.config.project_root,
+                project_dir=self.config.project_dir,
                 workspace_dir=self.config.workspace_dir,
                 experiment_id=experiment_id,
                 timeout=self.config.experiment_timeout,

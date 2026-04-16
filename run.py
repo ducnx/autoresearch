@@ -148,6 +148,7 @@ def run_research_loop(config: Config):
     status_line("GPU", "available" if config.has_gpu else "not detected")
     status_line("Dry run", str(config.dry_run))
     status_line("Ollama", "available" if config.has_ollama else "not detected")
+    status_line("Project", config.project)
     status_line("Workspace", str(config.workspace_dir))
 
     # Print LLM configs
@@ -158,7 +159,7 @@ def run_research_loop(config: Config):
         status_line(f"  {agent_name}", f"{provider} → {llm_cfg.model}")
 
     # Read initial train.py
-    train_path = config.project_root / config.train_script
+    train_path = config.project_dir / config.train_script
     train_code = train_path.read_text()
 
     # ─── Baseline run ────────────────────────────────────────────
@@ -356,6 +357,8 @@ Examples:
         """,
     )
 
+    parser.add_argument("--project", type=str, default="default",
+                        help="Project name under projects/ directory")
     parser.add_argument("--tag", type=str, default=None,
                         help="Experiment run tag (default: auto-generated from date)")
     parser.add_argument("--dry-run", action="store_true",
@@ -380,6 +383,7 @@ def main():
     tag = args.tag or datetime.now().strftime("%b%d").lower()
 
     config = Config.from_env(
+        project=args.project,
         run_tag=tag,
         dry_run=args.dry_run,
         max_experiments=args.max_experiments,

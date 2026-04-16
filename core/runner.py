@@ -69,7 +69,7 @@ def _parse_summary(log_content: str) -> dict:
 
 
 def run_experiment(
-    project_root: Path,
+    project_dir: Path,
     workspace_dir: Path,
     experiment_id: int,
     timeout: int = 600,
@@ -79,7 +79,7 @@ def run_experiment(
     Run a training experiment.
 
     Args:
-        project_root: Path to the project root (where train.py lives)
+        project_dir: Path to the project directory (where train.py lives)
         workspace_dir: Path to workspace (for log storage)
         experiment_id: Unique experiment identifier
         timeout: Maximum wall-clock seconds before kill
@@ -100,7 +100,7 @@ def run_experiment(
         with open(log_path, "w") as log_file:
             process = subprocess.Popen(
                 ["uv", "run", "train.py"],
-                cwd=str(project_root),
+                cwd=str(project_dir),
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 preexec_fn=os.setsid,  # Create process group for clean kill
