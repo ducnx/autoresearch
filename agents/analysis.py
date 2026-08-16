@@ -38,7 +38,8 @@ class AnalysisAgent(BaseAgent):
         best_bpb = state.get("best_bpb", "unknown")
 
         results_detail = "\n".join([
-            f"- Exp {r.experiment_id} [{r.status}]: val_bpb={r.val_bpb:.6f}, "
+            f"- Exp {r.experiment_id} [{r.status}]: {r.metric_name}="
+            f"{(r.metric_value if r.metric_value is not None else r.val_bpb):.6f}, "
             f"VRAM={r.peak_vram_mb:.0f}MB, {r.description}"
             for r in all_results[-10:]  # Last 10 experiments
         ])
@@ -46,15 +47,17 @@ class AnalysisAgent(BaseAgent):
         prompt = (
             f"## Latest Result\n"
             f"- Experiment {result.experiment_id}: {result.description}\n"
-            f"- val_bpb: {result.val_bpb:.6f}\n"
+            f"- {result.metric_name}: {(result.metric_value if result.metric_value is not None else result.val_bpb):.6f}\n"
+            f"- metric_direction: {result.metric_direction}\n"
+            f"- normalized lower-is-better objective: {result.val_bpb:.6f}\n"
             f"- Status: {result.status}\n"
             f"- peak_vram_mb: {result.peak_vram_mb:.1f}\n"
             f"- training_seconds: {result.training_seconds:.1f}\n"
             f"- mfu_percent: {result.mfu_percent:.2f}\n"
             f"- num_params_M: {result.num_params_m:.1f}\n"
             f"- depth: {result.depth}\n\n"
-            f"## Baseline val_bpb: {baseline_bpb}\n"
-            f"## Current best val_bpb: {best_bpb}\n\n"
+            f"## Baseline normalized objective: {baseline_bpb}\n"
+            f"## Current best normalized objective: {best_bpb}\n\n"
             f"## Recent Experiment History\n{results_detail}\n\n"
             f"Analyze this result. Consider:\n"
             f"1. Is the improvement (if any) meaningful or noise?\n"

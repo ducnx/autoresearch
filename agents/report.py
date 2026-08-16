@@ -37,7 +37,8 @@ class ReportAgent(BaseAgent):
         context = self.get_context()
 
         results_text = "\n".join([
-            f"- Exp {r.experiment_id} [{r.status}]: val_bpb={r.val_bpb:.6f}, "
+            f"- Exp {r.experiment_id} [{r.status}]: {r.metric_name}="
+            f"{(r.metric_value if r.metric_value is not None else r.val_bpb):.6f}, "
             f"VRAM={r.peak_vram_mb:.0f}MB, params={r.num_params_m:.1f}M — {r.description}"
             for r in results
         ])
@@ -45,8 +46,9 @@ class ReportAgent(BaseAgent):
         prompt = (
             f"## All Experiment Results\n{results_text}\n\n"
             f"## State\n"
-            f"- Baseline: {state.get('baseline_bpb')}\n"
-            f"- Best: {state.get('best_bpb')}\n"
+            f"- Primary metric: {self.config.project_spec.metric_name} ({self.config.project_spec.metric_direction})\n"
+            f"- Baseline normalized objective: {state.get('baseline_bpb')}\n"
+            f"- Best normalized objective: {state.get('best_bpb')}\n"
             f"- Total experiments: {state.get('experiment_count')}\n\n"
             f"Generate a concise progress report. Include:\n"
             f"1. Executive summary (2-3 sentences)\n"
@@ -94,11 +96,11 @@ class ReportAgent(BaseAgent):
                 "summary": (
                     f"Completed {len(results)} experiments. "
                     f"{len(kept)} kept, {len(discarded)} discarded, {len(crashed)} crashed. "
-                    f"Best val_bpb: {best.val_bpb:.6f}." if best else "No successful experiments."
+                    f"Best normalized objective: {best.val_bpb:.6f}." if best else "No successful experiments."
                 ),
                 "key_findings": [f"Best result: {best.description}" if best else "No results yet"],
                 "best_result": {
-                    "val_bpb": best.val_bpb if best else None,
+                    "objective": best.val_bpb if best else None,
                     "experiment_id": best.experiment_id if best else None,
                     "description": best.description if best else None,
                 } if best else None,
@@ -107,7 +109,7 @@ class ReportAgent(BaseAgent):
             },
             "plot_data": {
                 "x_labels": [f"exp_{r.experiment_id}" for r in results if r.status != "crash"],
-                "val_bpb_values": [r.val_bpb for r in results if r.status != "crash"],
+                "objective_values": [r.val_bpb for r in results if r.status != "crash"],
                 "statuses": [r.status for r in results if r.status != "crash"],
             },
         }
@@ -126,11 +128,11 @@ class ReportAgent(BaseAgent):
         if not valid:
             return
 
-        # --- Plot 1: val_bpb over experiments ---
+        # --- Plot 1: normalized objective over experiments ---
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
         fig.suptitle("Autoresearch Progress", fontsize=14, fontweight="bold")
 
-        # val_bpb trajectory
+        # objective trajectory
         ax = axes[0, 0]
         exp_ids = [r.experiment_id for r in valid]
         bpb_values = [r.val_bpb for r in valid]
@@ -148,8 +150,8 @@ class ReportAgent(BaseAgent):
         ax.plot(exp_ids, best_so_far, "b--", alpha=0.6, linewidth=1.5, label="Best so far")
 
         ax.set_xlabel("Experiment")
-        ax.set_ylabel("val_bpb")
-        ax.set_title("Validation BPB (lower is better)")
+        ax.set_ylabel("objective")
+        ax.set_title("Normalized Objective (lower is better)")
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
@@ -219,13 +221,15 @@ class ReportAgent(BaseAgent):
 
         # Results table
         md_lines.append("## Experiment Results\n")
-        md_lines.append("| ID | Status | val_bpb | VRAM (GB) | Params (M) | Description |")
-        md_lines.append("|-----|--------|---------|-----------|------------|-------------|")
+        md_lines.append("| ID | Status | Metric | Objective | VRAM (GB) | Params (M) | Description |")
+        md_lines.append("|-----|--------|--------|-----------|-----------|------------|-------------|")
         for r in results:
             vram = f"{r.peak_vram_mb / 1024:.1f}" if r.peak_vram_mb > 0 else "N/A"
             params = f"{r.num_params_m:.1f}" if r.num_params_m > 0 else "N/A"
+            metric_value = r.metric_value if r.metric_value is not None else r.val_bpb
             md_lines.append(
-                f"| {r.experiment_id} | {r.status} | {r.val_bpb:.6f} | {vram} | {params} | {r.description} |"
+                f"| {r.experiment_id} | {r.status} | {r.metric_name}={metric_value:.6f} | "
+                f"{r.val_bpb:.6f} | {vram} | {params} | {r.description} |"
             )
         md_lines.append("")
 

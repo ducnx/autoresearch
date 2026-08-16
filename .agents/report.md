@@ -25,7 +25,7 @@ Generate a markdown report:
       "Finding 2"
     ],
     "best_result": {
-      "val_bpb": 0.993,
+      "metric": 0.993,
       "experiment_id": 5,
       "description": "What made this the best"
     },
@@ -39,7 +39,7 @@ Generate a markdown report:
   },
   "plot_data": {
     "x_labels": ["baseline", "exp_1", "exp_2"],
-    "val_bpb_values": [0.998, 0.995, 0.993],
+    "metric_values": [0.998, 0.995, 0.993],
     "statuses": ["keep", "keep", "keep"]
   }
 }

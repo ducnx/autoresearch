@@ -31,6 +31,7 @@ from agents.literature import LiteratureAgent
 from agents.experiment import ExperimentAgent
 from agents.analysis import AnalysisAgent
 from agents.report import ReportAgent
+from agents.writer import WriterAgent
 
 
 # ─── Console formatting ─────────────────────────────────────────
@@ -93,11 +94,22 @@ def setup_branch(config: Config):
 
 
 def verify_data(config: Config):
-    """Check if training data and tokenizer exist."""
-    import os
-    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "autoresearch")
-    data_ok = os.path.exists(os.path.join(cache_dir, "data"))
-    tok_ok = os.path.exists(os.path.join(cache_dir, "tokenizer"))
+    """Check configured project data paths when provided."""
+    if config.project_spec.data_paths:
+        missing = [
+            path for path in config.project_spec.data_paths
+            if not (config.project_dir / path).exists()
+        ]
+        if missing:
+            print(f"  {YELLOW}⚠ Project data not found: {', '.join(missing)}{RESET}")
+            if not config.dry_run:
+                sys.exit(1)
+            print(f"  {DIM}(Continuing in dry-run mode){RESET}")
+        return not missing
+
+    cache_dir = Path.home() / ".cache" / "autoresearch"
+    data_ok = (cache_dir / "data").exists()
+    tok_ok = (cache_dir / "tokenizer").exists()
 
     if not data_ok or not tok_ok:
         print(f"  {YELLOW}⚠ Data not found at {cache_dir}")
@@ -137,6 +149,7 @@ def run_research_loop(config: Config):
     experiment_agent = ExperimentAgent(config, workspace)
     analysis_agent = AnalysisAgent(config, workspace)
     report_agent = ReportAgent(config, workspace)
+    writer_agent = WriterAgent(config, workspace)
 
     # Setup
     phase_header("Setup", "⚙️")
@@ -149,18 +162,16 @@ def run_research_loop(config: Config):
     status_line("Dry run", str(config.dry_run))
     status_line("Ollama", "available" if config.has_ollama else "not detected")
     status_line("Project", config.project)
+    status_line("Metric", f"{config.project_spec.metric_name} ({config.project_spec.metric_direction})")
+    status_line("Command", " ".join(config.project_spec.resolved_run_command()))
     status_line("Workspace", str(config.workspace_dir))
 
     # Print LLM configs
     print(f"\n  {BOLD}LLM Configuration:{RESET}")
-    for agent_name in ["director", "hypothesis", "literature", "experiment", "analysis", "report"]:
+    for agent_name in ["director", "hypothesis", "literature", "experiment", "analysis", "report", "writer"]:
         llm_cfg = getattr(config.llm, agent_name)
         provider = "☁️  cloud" if "ollama" not in llm_cfg.model else "🏠 local"
         status_line(f"  {agent_name}", f"{provider} → {llm_cfg.model}")
-
-    # Read initial train.py
-    train_path = config.project_dir / config.train_script
-    train_code = train_path.read_text()
 
     # ─── Baseline run ────────────────────────────────────────────
     experiment_id = 0
@@ -172,7 +183,7 @@ def run_research_loop(config: Config):
 
         baseline_hyp = Hypothesis(
             id="baseline",
-            description="Baseline — unmodified train.py",
+            description=f"Baseline — unmodified {config.project}",
             predicted_impact="n/a",
             complexity="n/a",
             risk="low",
@@ -181,16 +192,18 @@ def run_research_loop(config: Config):
         )
 
         result = experiment_agent.run(baseline_hyp, experiment_id)
-        result.status = "keep"
-        workspace.add_result(result)
-
-        if result.val_bpb > 0:
-            print(f"  {GREEN}✓ Baseline val_bpb: {result.val_bpb:.6f}{RESET}")
-        else:
+        if result.status == "crash":
             print(f"  {RED}✗ Baseline run failed: {result.error_message}{RESET}")
+            workspace.add_result(result)
             if not config.dry_run:
                 print("  Fix the issue and re-run.")
                 return
+        else:
+            result.status = "keep"
+            workspace.add_result(result)
+            writer_agent.update_results_log(result, baseline_hyp)
+            metric_value = result.metric_value if result.metric_value is not None else result.val_bpb
+            print(f"  {GREEN}✓ Baseline {result.metric_name}: {metric_value:.6f}{RESET}")
 
         experiment_id = 1
 
@@ -219,15 +232,15 @@ def run_research_loop(config: Config):
             # ── Phase 2: Parallel — Hypothesis + Literature ──────
             print(f"  {CYAN}[2/5] Parallel: generating hypotheses + searching literature...{RESET}")
 
-            # Read current train.py (may have changed from previous experiments)
-            train_code = train_path.read_text()
+            # Read current configured project files (may have changed from previous experiments)
+            project_context = experiment_agent.read_project_context()
 
             # Run hypothesis and literature agents in parallel using threads
             with ThreadPoolExecutor(max_workers=2) as executor:
                 hyp_future = executor.submit(
                     hypothesis_agent.run,
                     research_brief=research_brief,
-                    train_code=train_code,
+                    train_code=project_context,
                 )
                 lit_future = executor.submit(
                     literature_agent.run,
@@ -278,7 +291,9 @@ def run_research_loop(config: Config):
 
             consecutive_failures = 0
 
-            print(f"    val_bpb: {result.val_bpb:.6f}")
+            print(f"    objective: {result.val_bpb:.6f}")
+            if result.metric_value is not None:
+                print(f"    {result.metric_name}: {result.metric_value:.6f}")
             print(f"    VRAM: {result.peak_vram_mb / 1024:.1f} GB")
             print(f"    MFU: {result.mfu_percent:.1f}%")
 
@@ -291,18 +306,21 @@ def run_research_loop(config: Config):
             result.status = decision
             workspace.add_result(result)
             workspace.update_hypothesis_status(selected.id, "tested")
+            writer_agent.update_results_log(result, selected, analysis)
 
             state = workspace.get_state()
             elapsed = time.time() - start_time
 
             if decision == "keep":
                 improvement = ""
-                if state.get("baseline_bpb"):
-                    pct = (state["baseline_bpb"] - result.val_bpb) / state["baseline_bpb"] * 100
+                if state.get("baseline_bpb") not in (None, 0):
+                    pct = (state["baseline_bpb"] - result.val_bpb) / abs(state["baseline_bpb"]) * 100
                     improvement = f" ({pct:.2f}% from baseline)"
-                print(f"  {GREEN}✓ KEEP — val_bpb: {result.val_bpb:.6f}{improvement}{RESET}")
+                metric_value = result.metric_value if result.metric_value is not None else result.val_bpb
+                print(f"  {GREEN}✓ KEEP — {result.metric_name}: {metric_value:.6f}{improvement}{RESET}")
             else:
-                print(f"  {RED}✗ DISCARD — val_bpb: {result.val_bpb:.6f}{RESET}")
+                metric_value = result.metric_value if result.metric_value is not None else result.val_bpb
+                print(f"  {RED}✗ DISCARD — {result.metric_name}: {metric_value:.6f}{RESET}")
                 experiment_agent.revert_experiment()
 
             print(f"  {DIM}Elapsed: {elapsed:.0f}s{RESET}")
@@ -333,8 +351,8 @@ def run_research_loop(config: Config):
     state = workspace.get_state()
     print(f"\n{BOLD}Research Complete{RESET}")
     status_line("Total experiments", state["experiment_count"])
-    status_line("Baseline val_bpb", state.get("baseline_bpb", "N/A"))
-    status_line("Best val_bpb", state.get("best_bpb", "N/A"), GREEN)
+    status_line("Baseline objective", state.get("baseline_bpb", "N/A"))
+    status_line("Best objective", state.get("best_bpb", "N/A"), GREEN)
     if state.get("baseline_bpb") and state.get("best_bpb"):
         improvement = (state["baseline_bpb"] - state["best_bpb"]) / state["baseline_bpb"] * 100
         status_line("Improvement", f"{improvement:.2f}%", GREEN)

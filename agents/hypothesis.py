@@ -24,7 +24,7 @@ class HypothesisAgent(BaseAgent):
 
         Args:
             research_brief: Research brief from the Director
-            train_code: Current contents of train.py
+            train_code: Current configured project context
             num_ideas: Number of hypotheses to generate
 
         Returns:
@@ -36,9 +36,12 @@ class HypothesisAgent(BaseAgent):
 
         prompt = (
             f"{research_brief}\n\n"
-            f"## Current train.py\n```python\n{train_code}\n```\n\n"
+            f"## Project\n{self.config.project_spec.description}\n"
+            f"Primary metric: {self.config.project_spec.metric_name} "
+            f"({self.config.project_spec.metric_direction}).\n\n"
+            f"## Current Project Context\n{train_code}\n\n"
             f"Generate {num_ideas} experiment hypotheses ranked by expected value. "
-            f"Each hypothesis should describe a specific, implementable change to train.py.\n\n"
+            f"Each hypothesis should describe a specific, implementable change to the configured editable files.\n\n"
             f"Remember:\n"
             f"- Check experiment history to avoid repeating failed ideas\n"
             f"- Balance between safe incremental changes and bold explorations\n"

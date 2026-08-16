@@ -31,7 +31,7 @@ class BaseAgent:
 
     Each agent has:
       - A name and role description
-      - A system prompt loaded from prompts/<name>.md
+      - A system prompt loaded from .agents/<name>.md
       - Access to the shared workspace
       - An LLM interface for reasoning
     """
@@ -52,7 +52,7 @@ class BaseAgent:
 
     def _load_system_prompt(self) -> str:
         """Load the system prompt from the prompts directory."""
-        prompt_path = self.config.project_root / "prompts" / f"{self.name}.md"
+        prompt_path = self.config.project_root / ".agents" / f"{self.name}.md"
         if prompt_path.exists():
             return prompt_path.read_text()
         return f"You are the {self.role}."
@@ -83,36 +83,49 @@ class BaseAgent:
         Returns:
             The LLM's response text
         """
-        kwargs = {
-            "model": self.llm_config.model,
-            "messages": messages,
-            "temperature": temperature or self.llm_config.temperature,
-            "max_tokens": max_tokens or self.llm_config.max_tokens,
-            "timeout": self.llm_config.timeout,
-        }
+        last_error = None
+        configs = [self.llm_config]
+        fallback = self.config.fallback_llm(self.llm_config)
+        if fallback and fallback.model != self.llm_config.model:
+            configs.append(fallback)
 
-        if self.llm_config.api_base:
-            kwargs["api_base"] = self.llm_config.api_base
+        for cfg_index, llm_cfg in enumerate(configs):
+            if cfg_index > 0:
+                self._log(f"Switching to fallback LLM: {llm_cfg.model}")
 
-        if self.llm_config.api_key:
-            kwargs["api_key"] = self.llm_config.api_key
+            kwargs = {
+                "model": llm_cfg.model,
+                "messages": messages,
+                "temperature": temperature or llm_cfg.temperature,
+                "max_tokens": max_tokens or llm_cfg.max_tokens,
+                "timeout": llm_cfg.timeout,
+            }
 
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+            if llm_cfg.api_base:
+                kwargs["api_base"] = llm_cfg.api_base
 
-        for attempt in range(max_retries):
-            try:
-                response = litellm.completion(**kwargs)
-                return response.choices[0].message.content
-            except Exception as e:
-                self._log(f"LLM call failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    wait = 2 ** (attempt + 1)
-                    time.sleep(wait)
-                else:
-                    raise RuntimeError(
-                        f"LLM call failed after {max_retries} attempts: {e}"
-                    ) from e
+            if llm_cfg.api_key:
+                kwargs["api_key"] = llm_cfg.api_key
+
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            for attempt in range(max_retries):
+                try:
+                    response = litellm.completion(**kwargs)
+                    if cfg_index > 0:
+                        self.llm_config = llm_cfg
+                    return response.choices[0].message.content
+                except Exception as e:
+                    last_error = e
+                    self._log(f"LLM call failed (attempt {attempt + 1}/{max_retries}) on {llm_cfg.model}: {e}")
+                    if attempt < max_retries - 1:
+                        wait = 2 ** (attempt + 1)
+                        time.sleep(wait)
+
+        raise RuntimeError(
+            f"LLM call failed after trying configured and fallback models: {last_error}"
+        )
 
     def _call_llm_json(
         self,

@@ -7,6 +7,7 @@ from agents.literature import LiteratureAgent
 from agents.experiment import ExperimentAgent
 from agents.analysis import AnalysisAgent
 from agents.report import ReportAgent
+from agents.writer import WriterAgent
 
 __all__ = [
     "BaseAgent",
@@ -16,4 +17,5 @@ __all__ = [
     "ExperimentAgent",
     "AnalysisAgent",
     "ReportAgent",
+    "WriterAgent",
 ]

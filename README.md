@@ -29,8 +29,8 @@ This fork extends Karpathy's original autoresearch with a **multi-agent framewor
 
 The repo has three layers:
 
-1. **Experiment infrastructure** (`prepare.py`, `train.py`) — the original files for data prep and model training. Not modified by the framework.
-2. **Agent framework** (`agents/`, `core/`, `prompts/`) — the multi-agent system that drives autonomous research.
+1. **Experiment infrastructure** (`projects/<name>/project.json`, project entrypoints, datasets) — each project declares its editable files, run command, metric, and writing directory.
+2. **Agent framework** (`agents/`, `core/`, `.agents/`) — the multi-agent system that drives autonomous research.
 3. **Entry points** (`run.py`, `dashboard.py`) — CLI launcher and web dashboard.
 
 ### The Research Loop
@@ -102,10 +102,24 @@ uv run run.py --project my_project                # run for a specific project f
 uv run run.py --tag apr11                         # set experiment tag
 uv run run.py --dry-run                           # simulate without GPU
 uv run run.py --max-experiments 20                # stop after 20 experiments
+uv run run.py --project wind-turbine              # run the CARE wind-turbine project
 uv run run.py --cloud-model gpt-4o                # use OpenAI for cloud agents
 uv run run.py --local-model llama3.2:3b           # use smaller Ollama model
 uv run run.py --report-interval 3                 # report every 3 experiments
 ```
+
+## Project contract
+
+Each research project can include a `project.json` file. The framework uses it to decide:
+
+- which files agents may edit,
+- which files provide research context,
+- which command runs an experiment,
+- which metric is optimized and whether it is minimized or maximized,
+- which data paths must exist,
+- where results should be appended in LyX/LaTeX writing files.
+
+The default project keeps the original `train.py` workflow. The `projects/wind-turbine` project exposes `energy_fault_detector` from its `src/` folder, runs `projects/wind-turbine/train.py`, reports `care_loss`, and appends experiment outcomes to `projects/wind-turbine/writing/result.lyx`.
 
 ## Environment variables
 
@@ -128,16 +142,24 @@ autoresearch/
 │   ├── literature.py           # Literature search
 │   ├── experiment.py           # Code modification & training
 │   ├── analysis.py             # Result interpretation
-│   └── report.py               # Progress reports & plots
+│   ├── report.py               # Progress reports & plots
+│   └── writer.py               # LyX/LaTeX writing updates
 ├── core/                       # Infrastructure
 │   ├── config.py               # Configuration & LLM settings
+│   ├── project.py              # Per-project run/edit/write contract
 │   ├── workspace.py            # Shared state management
 │   └── runner.py               # Experiment runner (subprocess)
-├── projects/                   # Research projects directories
-│   └── default/                # Default project
-│       ├── prepare.py          # Data prep & tokenizer (unchanged)
-│       └── train.py            # Model & training loop (agent modifies)
-├── prompts/                    # Agent system prompts (Markdown)
+├── projects/                   # Research project directories
+│   ├── default/                # Default project
+│   │   ├── project.json        # Editable files, command, metric
+│   │   ├── prepare.py          # Data prep & tokenizer
+│   │   └── train.py            # Model & training loop
+│   └── wind-turbine/           # CARE wind-turbine project
+│       ├── project.json        # CARE command, metric, writing config
+│       ├── train.py            # Project entrypoint
+│       ├── src/                # energy_fault_detector package
+│       └── writing/            # LyX paper files
+├── .agents/                    # Agent system prompts (Markdown)
 │   ├── director.md
 │   ├── hypothesis.md
 │   ├── literature.md
@@ -152,10 +174,10 @@ autoresearch/
 
 ## Design choices
 
-- **Hybrid LLM strategy.** Cloud API (Gemini/GPT-4o) for tasks requiring internet access or strong reasoning (Director, Literature), local Ollama for cost-sensitive frequent tasks (Hypothesis, Experiment, Analysis, Report). Automatic fallback to cloud if Ollama is not available.
+- **Hybrid LLM strategy.** Cloud API (Gemini/GPT-4o) for tasks requiring internet access or strong reasoning (Director, Literature), local Ollama for cost-sensitive frequent tasks (Hypothesis, Experiment, Analysis, Report). If a cloud call fails or runs out of quota, agents try a local Ollama fallback when available; if Ollama is unavailable, local agents route to cloud.
 - **Flexible GPU support.** Auto-detects NVIDIA GPU. Falls back to `--dry-run` mode with simulated results for framework testing without GPU.
 - **Shared workspace.** Agents communicate via JSON files in `workspace/`, not direct messages. This enables debugging, replay, and persistence across restarts.
-- **Preserved experiment infrastructure.** The original `prepare.py` and `train.py` are untouched — still one GPU, one file, one metric.
+- **Project-specific experiment infrastructure.** The original default `prepare.py` and `train.py` flow still works, while package-style projects can declare their own entrypoints and metrics.
 
 ## Attribution
 

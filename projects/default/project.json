@@ -1,0 +1,11 @@
+{
+  "description": "Default autoresearch language-model experiment. Agents modify the single-file training script and optimize validation bits per byte under a fixed training budget.",
+  "entrypoint": "train.py",
+  "run_command": ["uv", "run", "python", "{entrypoint}"],
+  "editable_files": ["train.py"],
+  "context_files": ["train.py"],
+  "metric": {
+    "name": "val_bpb",
+    "direction": "minimize"
+  }
+}

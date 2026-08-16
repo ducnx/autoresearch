@@ -112,10 +112,12 @@ class DirectorAgent(BaseAgent):
         prompt = (
             f"## Latest Experiment Result\n"
             f"- Hypothesis: {hypothesis.description}\n"
-            f"- val_bpb: {result.val_bpb:.6f}\n"
+            f"- {result.metric_name}: {(result.metric_value if result.metric_value is not None else result.val_bpb):.6f}\n"
+            f"- metric direction: {result.metric_direction}\n"
+            f"- normalized lower-is-better objective: {result.val_bpb:.6f}\n"
             f"- peak_vram_mb: {result.peak_vram_mb:.1f}\n"
-            f"- Current best val_bpb: {current_best}\n"
-            f"- Baseline val_bpb: {baseline}\n\n"
+            f"- Current best normalized objective: {current_best}\n"
+            f"- Baseline normalized objective: {baseline}\n\n"
             f"Should we KEEP this result (advance the branch) or DISCARD it (revert)?\n"
             f"Consider: improvement magnitude, complexity cost, VRAM impact.\n\n"
             f"Respond with JSON containing: decision (keep/discard), reasoning, next_direction"
@@ -162,8 +164,9 @@ class DirectorAgent(BaseAgent):
         brief_parts = [
             f"## Research Brief",
             f"- Experiments completed: {state['experiment_count']}",
-            f"- Baseline val_bpb: {state.get('baseline_bpb', 'not yet established')}",
-            f"- Best val_bpb: {state.get('best_bpb', 'not yet established')}",
+            f"- Primary metric: {self.config.project_spec.metric_name} ({self.config.project_spec.metric_direction})",
+            f"- Baseline normalized objective: {state.get('baseline_bpb', 'not yet established')}",
+            f"- Best normalized objective: {state.get('best_bpb', 'not yet established')}",
         ]
 
         if results:
@@ -171,7 +174,8 @@ class DirectorAgent(BaseAgent):
             brief_parts.append("\n## Recent Experiments")
             for r in recent:
                 brief_parts.append(
-                    f"- [{r.status}] val_bpb={r.val_bpb:.6f}: {r.description}"
+                    f"- [{r.status}] {r.metric_name}="
+                    f"{(r.metric_value if r.metric_value is not None else r.val_bpb):.6f}: {r.description}"
                 )
 
             # Identify what worked and what didn't

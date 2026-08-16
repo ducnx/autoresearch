@@ -35,6 +35,10 @@ class ExperimentResult:
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     error_message: Optional[str] = None
     code_diff: Optional[str] = None
+    metric_name: str = "val_bpb"
+    metric_value: Optional[float] = None
+    metric_direction: str = "minimize"
+    extra_metrics: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -205,7 +209,7 @@ class Workspace:
             if state["best_bpb"] is None or result.val_bpb < state["best_bpb"]:
                 state["best_bpb"] = result.val_bpb
                 state["best_commit"] = result.commit_hash
-        if state["baseline_bpb"] is None and result.experiment_id == 0:
+        if state["baseline_bpb"] is None and result.experiment_id == 0 and result.status != "crash":
             state["baseline_bpb"] = result.val_bpb
         state["last_updated"] = datetime.now().isoformat()
         self._write_json(self.root / "state.json", state)
@@ -298,18 +302,20 @@ class Workspace:
             return "No experiments have been run yet."
 
         lines = ["Experiment History:"]
-        lines.append(f"{'ID':>4} | {'Status':<8} | {'val_bpb':>10} | {'VRAM_GB':>8} | Description")
+        lines.append(f"{'ID':>4} | {'Status':<8} | {'Metric':>10} | {'VRAM_GB':>8} | Description")
         lines.append("-" * 80)
         for r in results:
             vram_gb = f"{r.peak_vram_mb / 1024:.1f}" if r.peak_vram_mb > 0 else "N/A"
+            metric = r.metric_value if r.metric_value is not None else r.val_bpb
+            metric_name = r.metric_name or "val_bpb"
             lines.append(
-                f"{r.experiment_id:>4} | {r.status:<8} | {r.val_bpb:>10.6f} | {vram_gb:>8} | {r.description}"
+                f"{r.experiment_id:>4} | {r.status:<8} | {metric:>10.6f} {metric_name} | {vram_gb:>8} | {r.description}"
             )
 
         state = self.get_state()
         if state["best_bpb"] is not None:
-            lines.append(f"\nBest val_bpb: {state['best_bpb']:.6f} (commit: {state['best_commit']})")
+            lines.append(f"\nBest normalized objective: {state['best_bpb']:.6f} (commit: {state['best_commit']})")
         if state["baseline_bpb"] is not None:
-            lines.append(f"Baseline val_bpb: {state['baseline_bpb']:.6f}")
+            lines.append(f"Baseline normalized objective: {state['baseline_bpb']:.6f}")
 
         return "\n".join(lines)

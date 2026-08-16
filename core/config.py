@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from core.project import ProjectSpec
+
 
 def _detect_gpu() -> bool:
     """Check if an NVIDIA GPU is available."""
@@ -82,6 +84,7 @@ class AgentLLMConfig:
     experiment: LLMConfig = field(default_factory=lambda: LLMConfig.local())
     analysis: LLMConfig = field(default_factory=lambda: LLMConfig.local())
     report: LLMConfig = field(default_factory=lambda: LLMConfig.local())
+    writer: LLMConfig = field(default_factory=lambda: LLMConfig.cloud())
 
 
 @dataclass
@@ -92,6 +95,7 @@ class Config:
     project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent)
     project: str = "default"
     project_dir: Path = field(default=None)
+    project_spec: ProjectSpec = field(default=None)
     workspace_dir: Path = field(default=None)
     train_script: str = "train.py"
     prepare_script: str = "prepare.py"
@@ -118,7 +122,11 @@ class Config:
     def __post_init__(self):
         if self.project_dir is None:
             self.project_dir = self.project_root / "projects" / self.project
-            
+
+        if self.project_spec is None:
+            self.project_spec = ProjectSpec.load(self.project, self.project_dir)
+        self.train_script = self.project_spec.primary_file
+
         if self.workspace_dir is None:
             self.workspace_dir = self.project_dir / "workspace"
 
@@ -130,11 +138,20 @@ class Config:
         # If no Ollama, fall back all local models to cloud
         if not self.has_ollama:
             print("[config] Ollama not detected — falling back local agents to cloud API")
-            cloud = LLMConfig.cloud()
-            self.llm.hypothesis = cloud
-            self.llm.experiment = cloud
-            self.llm.analysis = cloud
-            self.llm.report = cloud
+            self.llm.hypothesis = LLMConfig.cloud()
+            self.llm.experiment = LLMConfig.cloud()
+            self.llm.analysis = LLMConfig.cloud()
+            self.llm.report = LLMConfig.cloud()
+
+    def fallback_llm(self, current: LLMConfig) -> Optional[LLMConfig]:
+        """Return an alternate LLM when the current one exhausts quota or fails."""
+        is_local = "ollama" in current.model
+        if not is_local and self.has_ollama:
+            local_model = os.environ.get("AUTORESEARCH_LOCAL_MODEL", "qwen3:8b")
+            return LLMConfig.local(model=f"ollama/{local_model}")
+        if is_local:
+            return LLMConfig.cloud(model=os.environ.get("AUTORESEARCH_CLOUD_MODEL", "gemini/gemini-2.5-flash"))
+        return None
 
     @classmethod
     def from_env(cls, **overrides) -> "Config":
@@ -144,7 +161,10 @@ class Config:
         # Override cloud model from env
         cloud_model = os.environ.get("AUTORESEARCH_CLOUD_MODEL")
         if cloud_model:
-            for name in ["director", "literature"]:
+            cloud_agent_names = ["director", "literature", "writer"]
+            if not config.has_ollama:
+                cloud_agent_names = ["director", "hypothesis", "literature", "experiment", "analysis", "report", "writer"]
+            for name in cloud_agent_names:
                 getattr(config.llm, name).model = cloud_model
 
         # Override local model from env
@@ -156,7 +176,7 @@ class Config:
         # API key from env
         api_key = os.environ.get("AUTORESEARCH_API_KEY")
         if api_key:
-            for name in ["director", "literature"]:
+            for name in ["director", "hypothesis", "literature", "experiment", "analysis", "report", "writer"]:
                 getattr(config.llm, name).api_key = api_key
 
         return config

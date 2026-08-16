@@ -1,0 +1,29 @@
+{
+  "description": "Wind-turbine early fault detection research using the CARE To Compare dataset. Agents should look for gaps in anomaly detection, temporal modeling, thresholding, root-cause analysis, and evaluation methodology, then implement focused changes and compare against the configured CARE baseline.",
+  "entrypoint": "train.py",
+  "run_command": ["uv", "run", "python", "{entrypoint}"],
+  "editable_files": [
+    "train.py",
+    "src/config/quickstart_config.py",
+    "src/models/vrae.py",
+    "src/threshold_selectors/fbeta_threshold.py",
+    "src/evaluation/care_score.py"
+  ],
+  "context_files": [
+    "ideas.md",
+    "repos.md",
+    "src/evaluation/care2compare.py",
+    "src/core/fault_detection_model.py",
+    "src/energy_fault_detector/fault_detector.py"
+  ],
+  "package_paths": ["src"],
+  "data_paths": ["data/CARE_To_Compare"],
+  "metric": {
+    "name": "care_loss",
+    "direction": "minimize"
+  },
+  "writing": {
+    "dir": "writing",
+    "result_section": "result.lyx"
+  }
+}
